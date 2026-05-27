@@ -17,6 +17,8 @@ import '../models/note.dart';
 import '../models/app_settings.dart';
 
 class AppState extends ChangeNotifier with WindowListener, TrayListener {
+  static const _clipboardOwnerChannel = MethodChannel('app.unclutter/clipboard_owner');
+
   // Singleton
   static final AppState _instance = AppState._internal();
   factory AppState() => _instance;
@@ -134,8 +136,13 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     final primaryDisplay = await screenRetriever.getPrimaryDisplay();
     final screenWidth = primaryDisplay.size.width;
 
-    // Default size is based on settings
-    final w = settings.panelWidth;
+    // Calculate width (pixels or percentage of screen)
+    double w;
+    if (settings.isWidthPercentage) {
+      w = screenWidth * (settings.panelWidthPercent / 100.0);
+    } else {
+      w = settings.panelWidth;
+    }
     final double hCollapsed = Platform.isMacOS ? 24.0 : 3.0;
 
     if (isStartup) {
@@ -202,7 +209,14 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     // 1. Expand native window bounds first to allow the animation to show
     final primaryDisplay = await screenRetriever.getPrimaryDisplay();
     final screenWidth = primaryDisplay.size.width;
-    final w = settings.panelWidth;
+    
+    double w;
+    if (settings.isWidthPercentage) {
+      w = screenWidth * (settings.panelWidthPercent / 100.0);
+    } else {
+      w = settings.panelWidth;
+    }
+    
     final x = (screenWidth - w) / 2;
     await windowManager.setBounds(Rect.fromLTWH(x, 0, w, 350));
     await windowManager.show();
@@ -378,21 +392,14 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
 
   // --- System Tray ---
   Future<void> _setupTray() async {
-    // Write bulletproof raw white square PNG to temporary files for tray icon
     try {
-      final tempDir = await getTemporaryDirectory();
-      final iconFile = File('${tempDir.path}/unclutter_tray_icon.png');
-
-      // Simple 16x16 pixel white square with transparent border PNG in base64
-      const iconBase64 =
-          'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABmJLR0QA/wD/AP+gvaeTAAAAJElEQVQ4y2P8//8/AyUYiVFAjAJiFBCjgBgFxCggRgExCmgcAAA+ewH5sTz2HQAAAABJRU5ErkJggg==';
-
-      await iconFile.writeAsBytes(base64Decode(iconBase64));
-      _trayIconPath = iconFile.path;
-
+      if (Platform.isWindows) {
+        _trayIconPath = 'assets/images/tray_icon.ico';
+      } else {
+        _trayIconPath = 'assets/images/tray_icon.png';
+      }
       await trayManager.setIcon(_trayIconPath);
     } catch (e) {
-      // Fallback if writing fails
       debugPrint('Failed to set tray icon: $e');
     }
 
@@ -408,6 +415,11 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
   @override
   void onTrayIconMouseDown() {
     togglePanel();
+  }
+
+  @override
+  void onTrayIconRightMouseDown() {
+    trayManager.popUpContextMenu();
   }
 
   @override
@@ -432,7 +444,22 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
 
             // If the user copied this text from the app itself, don't add duplicate
             if (text != _lastAppCopiedText) {
-              addClipboardItem(text);
+              String? appName;
+              String? appIconPath;
+
+              if (Platform.isWindows) {
+                try {
+                  final result = await _clipboardOwnerChannel.invokeMethod('getClipboardOwner');
+                  if (result is Map) {
+                    appName = result['name'] as String?;
+                    appIconPath = result['iconPath'] as String?;
+                  }
+                } catch (e) {
+                  debugPrint('Failed to get clipboard owner info: $e');
+                }
+              }
+
+              await addClipboardItem(text, appName: appName, appIconPath: appIconPath);
             }
           }
         }
@@ -442,7 +469,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     });
   }
 
-  Future<void> addClipboardItem(String content) async {
+  Future<void> addClipboardItem(String content, {String? appName, String? appIconPath}) async {
     // Avoid duplicates of the exact same content in recent clipboard history list
     clipboardHistory.removeWhere(
       (item) => item.content == content && !item.isPinned,
@@ -452,6 +479,8 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
       id: _uuid.v4(),
       content: content,
       timestamp: DateTime.now(),
+      appName: appName,
+      appIconPath: appIconPath,
     );
 
     clipboardHistory.insert(0, newItem);

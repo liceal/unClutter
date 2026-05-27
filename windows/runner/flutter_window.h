@@ -3,8 +3,10 @@
 
 #include <flutter/dart_project.h>
 #include <flutter/flutter_view_controller.h>
+#include <flutter/method_channel.h>
 
 #include <memory>
+#include <gdiplus.h>
 
 #include "win32_window.h"
 
@@ -28,6 +30,12 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+
+  // GDI+ startup token
+  ULONG_PTR gdiplus_token_;
+
+  // Method channel for clipboard owner details
+  std::unique_ptr<flutter::MethodChannel<>> method_channel_;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

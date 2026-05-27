@@ -14,6 +14,7 @@ class NotesPane extends StatefulWidget {
 
 class _NotesPaneState extends State<NotesPane> {
   late TextEditingController _editorController;
+  late TextEditingController _searchController;
   final ScrollController _scrollController = ScrollController();
   String _activeNoteId = '';
   bool _showList = true;
@@ -22,6 +23,11 @@ class _NotesPaneState extends State<NotesPane> {
   void initState() {
     super.initState();
     _editorController = TextEditingController();
+    _searchController = TextEditingController();
+    _searchController.text = widget.state.searchNotesQuery;
+    _searchController.addListener(() {
+      widget.state.searchNotesQuery = _searchController.text;
+    });
     _syncActiveNote();
   }
 
@@ -34,6 +40,7 @@ class _NotesPaneState extends State<NotesPane> {
   @override
   void dispose() {
     _editorController.dispose();
+    _searchController.dispose();
     _scrollController.dispose();
     super.dispose();
   }
@@ -59,6 +66,7 @@ class _NotesPaneState extends State<NotesPane> {
     widget.state.setDialogOpen(true);
     await showDialog(
       context: context,
+      barrierColor: Colors.transparent,
       builder: (ctx) => AlertDialog(
         title: const Text('删除便签？'),
         content: const Text('您确定要删除该便签吗？'),
@@ -193,7 +201,7 @@ class _NotesPaneState extends State<NotesPane> {
   @override
   Widget build(BuildContext context) {
     final active = widget.state.activeNote;
-    final allNotes = widget.state.notes;
+    final allNotes = widget.state.filteredNotes;
 
     if (active == null) {
       return const Center(child: CircularProgressIndicator());
@@ -204,12 +212,50 @@ class _NotesPaneState extends State<NotesPane> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header with buttons
+          // Header with search input & buttons
           SizedBox(
             height: 28,
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.end,
               children: [
+                if (_showList)
+                  Expanded(
+                    child: Container(
+                      height: 26,
+                      decoration: BoxDecoration(
+                        color: widget.isDark
+                            ? Colors.white.withOpacity(0.06)
+                            : Colors.black.withOpacity(0.04),
+                        borderRadius: BorderRadius.circular(6),
+                      ),
+                      child: TextField(
+                        controller: _searchController,
+                        textAlignVertical: TextAlignVertical.center,
+                        style: const TextStyle(fontSize: 11),
+                        decoration: InputDecoration(
+                          hintText: '搜索便签...',
+                          hintStyle: TextStyle(
+                            fontSize: 11,
+                            color: widget.isDark ? Colors.white30 : Colors.black38,
+                          ),
+                          prefixIcon: Icon(
+                            Icons.search,
+                            size: 13,
+                            color: widget.isDark ? Colors.white30 : Colors.black38,
+                          ),
+                          prefixIconConstraints: const BoxConstraints(
+                            minWidth: 24,
+                            minHeight: 13,
+                          ),
+                          border: InputBorder.none,
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
+                          isDense: true,
+                        ),
+                      ),
+                    ),
+                  )
+                else
+                  const Spacer(),
+                const SizedBox(width: 8),
                 if (!_showList) ...[
                   IconButton(
                     icon: const Icon(Icons.delete_outline, size: 14),
@@ -244,7 +290,7 @@ class _NotesPaneState extends State<NotesPane> {
               ],
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
 
           // Main Content Area with Transition
           Expanded(

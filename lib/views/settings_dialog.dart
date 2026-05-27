@@ -21,6 +21,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late bool _isDarkTheme;
   late double _hoverTimeout;
   late double _panelWidth;
+  late bool _isWidthPercentage;
+  late double _panelWidthPercent;
   late String _themeColorName;
   late bool _closeOnBlur;
   late int _autoCollapseDelay;
@@ -41,6 +43,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
     _isDarkTheme = widget.state.settings.isDarkTheme;
     _hoverTimeout = widget.state.settings.hoverTimeoutMs.toDouble();
     _panelWidth = widget.state.settings.panelWidth;
+    _isWidthPercentage = widget.state.settings.isWidthPercentage;
+    _panelWidthPercent = widget.state.settings.panelWidthPercent;
     _themeColorName = (widget.state.settings.themeColorName as dynamic) ?? 'blue';
     _closeOnBlur = widget.state.settings.closeOnBlur;
     _autoCollapseDelay = widget.state.settings.autoCollapseDelay;
@@ -53,6 +57,8 @@ class _SettingsDialogState extends State<SettingsDialog> {
       isDarkTheme: _isDarkTheme,
       hoverTimeoutMs: _hoverTimeout.toInt(),
       panelWidth: _panelWidth,
+      isWidthPercentage: _isWidthPercentage,
+      panelWidthPercent: _panelWidthPercent,
       themeColorName: _themeColorName,
       closeOnBlur: _closeOnBlur,
       autoCollapseDelay: _autoCollapseDelay,
@@ -256,26 +262,124 @@ class _SettingsDialogState extends State<SettingsDialog> {
                             color: subColor,
                           ),
                         ),
-                        Text(
-                          '${_panelWidth.toInt()} px',
-                          style: TextStyle(fontSize: 12, color: textColor),
+                        Container(
+                          height: 24,
+                          decoration: BoxDecoration(
+                            color: _isDarkTheme
+                                ? Colors.white.withOpacity(0.06)
+                                : Colors.black.withOpacity(0.04),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _isWidthPercentage = false;
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: !_isWidthPercentage
+                                        ? accentColor
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '固定像素',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: !_isWidthPercentage
+                                          ? Colors.white
+                                          : textColor.withOpacity(0.6),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              GestureDetector(
+                                onTap: () {
+                                  setState(() {
+                                    _isWidthPercentage = true;
+                                  });
+                                },
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                                  decoration: BoxDecoration(
+                                    color: _isWidthPercentage
+                                        ? accentColor
+                                        : Colors.transparent,
+                                    borderRadius: BorderRadius.circular(6),
+                                  ),
+                                  child: Text(
+                                    '屏幕百分比',
+                                    style: TextStyle(
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.w600,
+                                      color: _isWidthPercentage
+                                          ? Colors.white
+                                          : textColor.withOpacity(0.6),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ],
                     ),
-                    Slider(
-                      value: _panelWidth,
-                      min: 400,
-                      max: 1600,
-                      divisions: 24,
-                      activeColor: accentColor,
-                      inactiveColor: _isDarkTheme ? Colors.white12 : Colors.black12,
-                      label: '${_panelWidth.toInt()}px',
-                      onChanged: (val) {
-                        setState(() {
-                          _panelWidth = val;
-                        });
-                      },
-                    ),
+                    const SizedBox(height: 6),
+                    if (!_isWidthPercentage) ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${_panelWidth.toInt()} px',
+                            style: TextStyle(fontSize: 11, color: textColor),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        value: _panelWidth,
+                        min: 400,
+                        max: 1600,
+                        divisions: 24,
+                        activeColor: accentColor,
+                        inactiveColor: _isDarkTheme ? Colors.white12 : Colors.black12,
+                        label: '${_panelWidth.toInt()}px',
+                        onChanged: (val) {
+                          setState(() {
+                            _panelWidth = val;
+                          });
+                        },
+                      ),
+                    ] else ...[
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          Text(
+                            '${_panelWidthPercent.toInt()}%',
+                            style: TextStyle(fontSize: 11, color: textColor),
+                          ),
+                        ],
+                      ),
+                      Slider(
+                        value: _panelWidthPercent,
+                        min: 30,
+                        max: 95,
+                        divisions: 13,
+                        activeColor: accentColor,
+                        inactiveColor: _isDarkTheme ? Colors.white12 : Colors.black12,
+                        label: '${_panelWidthPercent.toInt()}%',
+                        onChanged: (val) {
+                          setState(() {
+                            _panelWidthPercent = val;
+                          });
+                        },
+                      ),
+                    ],
                     const SizedBox(height: 10),
 
                     // Theme Accent Selection

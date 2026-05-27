@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:intl/intl.dart';
@@ -120,6 +121,7 @@ class _ClipboardPaneState extends State<ClipboardPane> {
                                     widget.state.setDialogOpen(true);
                                     await showDialog(
                                       context: context,
+                                      barrierColor: Colors.transparent,
                                       builder: (ctx) => AlertDialog(
                                         title: const Text('清空剪贴板历史？'),
                                         content: const Text(
@@ -236,6 +238,31 @@ class _ClipboardItemCardState extends State<ClipboardItemCard> {
   late bool _isPinned;
   bool _isDeleted = false;
 
+  Widget _buildAppIcon() {
+    final iconPath = widget.item.appIconPath;
+    if (iconPath != null && iconPath.isNotEmpty) {
+      final file = File(iconPath);
+      if (file.existsSync()) {
+        return Image.file(
+          file,
+          width: 14,
+          height: 14,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) => Icon(
+            Icons.article_outlined,
+            size: 14,
+            color: widget.isDark ? Colors.white30 : Colors.black38,
+          ),
+        );
+      }
+    }
+    return Icon(
+      Icons.article_outlined,
+      size: 14,
+      color: widget.isDark ? Colors.white30 : Colors.black38,
+    );
+  }
+
   @override
   void initState() {
     super.initState();
@@ -258,6 +285,7 @@ class _ClipboardItemCardState extends State<ClipboardItemCard> {
     AppState().setDialogOpen(true);
     await showDialog(
       context: context,
+      barrierColor: Colors.transparent,
       builder: (ctx) => Dialog(
         backgroundColor: bgColor,
         insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 20),
@@ -474,6 +502,13 @@ class _ClipboardItemCardState extends State<ClipboardItemCard> {
           ),
           child: Row(
             children: [
+              Container(
+                margin: const EdgeInsets.only(right: 6),
+                child: Tooltip(
+                  message: widget.item.appName ?? '未知应用',
+                  child: _buildAppIcon(),
+                ),
+              ),
               Expanded(
                 child: AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 200),

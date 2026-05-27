@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:screen_retriever/screen_retriever.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import '../services/app_state.dart';
 import '../models/app_settings.dart';
 import '../theme/app_theme.dart';
@@ -184,6 +185,7 @@ class _UnclutterPanelState extends State<UnclutterPanel>
 
     await showDialog(
       context: context,
+      barrierColor: Colors.transparent,
       builder: (context) => SettingsDialog(state: widget.state),
     );
 
@@ -384,19 +386,26 @@ class _UnclutterPanelState extends State<UnclutterPanel>
                     left: 0,
                     right: 0,
                     height: Platform.isMacOS ? 24.0 : 3.0,
-                    child: MouseRegion(
-                      cursor: SystemMouseCursors.click,
-                      onEnter: (_) => _onMouseEnteredTopStrip(),
-                      onExit: (_) => _onMouseExitedTopStrip(),
-                      child: Listener(
-                        behavior: HitTestBehavior.opaque,
-                        onPointerSignal: _handleTopScrollSignal, // 直接复用统一方法
-                        child: Container(
-                          color: Platform.isMacOS
-                              ? Colors.transparent
-                              : (isDark
-                                    ? Colors.white.withOpacity(0.1)
-                                    : Colors.black.withOpacity(0.05)),
+                    child: DropTarget(
+                      onDragEntered: (_) {
+                        if (!widget.state.isExpanded && !widget.state.isAnimating) {
+                          widget.state.expandPanel();
+                        }
+                      },
+                      child: MouseRegion(
+                        cursor: SystemMouseCursors.click,
+                        onEnter: (_) => _onMouseEnteredTopStrip(),
+                        onExit: (_) => _onMouseExitedTopStrip(),
+                        child: Listener(
+                          behavior: HitTestBehavior.opaque,
+                          onPointerSignal: _handleTopScrollSignal, // 直接复用统一方法
+                          child: Container(
+                            color: Platform.isMacOS
+                                ? Colors.transparent
+                                : (isDark
+                                      ? Colors.white.withOpacity(0.1)
+                                      : Colors.black.withOpacity(0.05)),
+                          ),
                         ),
                       ),
                     ),
