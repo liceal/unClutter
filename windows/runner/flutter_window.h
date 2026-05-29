@@ -36,6 +36,12 @@ class FlutterWindow : public Win32Window {
 
   // Method channel for clipboard owner details
   std::unique_ptr<flutter::MethodChannel<>> method_channel_;
+
+  // Method channel for focus management (save/restore previous app)
+  std::unique_ptr<flutter::MethodChannel<>> focus_channel_;
+
+  // Saved previous foreground window handle
+  HWND previous_hwnd_ = nullptr;
 };
 
 #endif  // RUNNER_FLUTTER_WINDOW_H_

@@ -23,6 +23,8 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
 
   static const _menuBarScrollChannel = MethodChannel('app.pod/menu_bar_scroll');
 
+  static const _focusManagerChannel = MethodChannel('app.pod/focus_manager');
+
   // Singleton
   static final AppState _instance = AppState._internal();
   factory AppState() => _instance;
@@ -57,6 +59,8 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
 
   String _trayIconPath = '';
   StreamSubscription<FileSystemEvent>? _dirWatcher;
+
+  bool _didGrabFocus = false; // Track whether we stole focus during expand
 
   bool isItemFavorite(String content) {
     return clipboardFavorites.any((x) => x.content == content);
@@ -262,7 +266,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
       if (isAnimating && !isExpanded) {
         cancelCollapseAndExpand();
       } else if (!isExpanded && !isAnimating) {
-        expandPanel();
+        expandPanel(focus: true);
       }
     } else if (dy < 0) {
       // 上滑 → 收起
@@ -319,7 +323,8 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
         await windowManager.setHasShadow(true); // Shadow when expanded
 
         // Windows: 如果是快捷键触发，则 show() 激活窗口；如果是悬浮/滚动触发，则 show(inactive: true) 避免抢夺焦点
-        final bool shouldFocus = focus || settings.triggerMode == TriggerMode.hotkeyOnly;
+        final bool shouldFocus =
+            focus || settings.triggerMode == TriggerMode.hotkeyOnly;
         if (shouldFocus) {
           await windowManager.show();
         } else {
@@ -328,11 +333,17 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
       }
 
       if (focus || settings.triggerMode == TriggerMode.hotkeyOnly) {
+        // Remember the currently frontmost app before we steal focus
         if (Platform.isMacOS) {
+          await _menuBarScrollChannel.invokeMethod('savePreviousApp');
           await _menuBarScrollChannel.invokeMethod('focusWindow');
         } else {
+          await _focusManagerChannel.invokeMethod('savePreviousApp');
           await windowManager.focus();
         }
+        _didGrabFocus = true;
+      } else {
+        _didGrabFocus = false;
       }
     } catch (e) {
       debugPrint('Failed to expand panel: $e');
@@ -353,15 +364,28 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
   Future<void> collapsePanel() async {
     if (!isExpanded || isAnimating) return;
     _autoCollapseTimer?.cancel();
-    await forceSaveNotesIfPending();
     isAnimating = true;
     isExpanded = false;
+
+    // Restore focus to the previous app immediately when collapse starts
+    if (_didGrabFocus) {
+      if (Platform.isMacOS) {
+        _menuBarScrollChannel.invokeMethod('restorePreviousApp');
+      } else {
+        _focusManagerChannel.invokeMethod('restorePreviousApp');
+      }
+      _didGrabFocus = false;
+    }
+
     if (Platform.isMacOS) {
       await windowManager.setIgnoreMouseEvents(
         true,
       ); // Click-through immediately during collapse animation
     }
     notifyListeners();
+
+    // Save notes in background to avoid blocking focus restore and UI
+    forceSaveNotesIfPending();
 
     // We wait for the sliding animation to complete inside the UI before resizing the native window.
     // The UI calls AppState.onCollapseAnimationFinished() to finalize this.
@@ -370,9 +394,6 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
   Future<void> onCollapseAnimationFinished() async {
     isAnimating = false;
     await applyWindowTriggerConfiguration();
-    // 不主动调 blur()：
-    // - 自动收起时鼠标已在其他应用，那个应用本身持有焦点，无需干预
-    // - 手动收起时 Windows 会自行将焦点交给下一个窗口
     notifyListeners();
   }
 
@@ -416,11 +437,12 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
   // --- Window Listeners ---
   @override
   void onWindowBlur() {
-    // macOS: 失去焦点时启动自动收起计时器
-    // Windows: 不在失去焦点时自动收起，以避免鼠标悬停使用时因焦点转移导致坍缩
+    // 失去焦点时启动自动收起计时器
     if (Platform.isMacOS) {
       startAutoCollapseTimer();
     }
+    // User clicked away — don't restore focus when auto-collapsing later
+    _didGrabFocus = false;
   }
 
   @override
@@ -835,7 +857,10 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     });
   }
 
-  Future<void> addDroppedFiles(List<String> filePaths, {Directory? targetDir}) async {
+  Future<void> addDroppedFiles(
+    List<String> filePaths, {
+    Directory? targetDir,
+  }) async {
     final destPath = targetDir?.path ?? await _getFilesDirectoryPath();
     for (var filePath in filePaths) {
       try {
@@ -967,15 +992,21 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     }
   }
 
-  Future<void> moveFileToFolder(FileSystemEntity source, Directory targetFolder) async {
+  Future<void> moveFileToFolder(
+    FileSystemEntity source,
+    Directory targetFolder,
+  ) async {
     try {
       if (source.existsSync() && targetFolder.existsSync()) {
-        final segments = source.uri.pathSegments.where((s) => s.isNotEmpty).toList();
+        final segments = source.uri.pathSegments
+            .where((s) => s.isNotEmpty)
+            .toList();
         final fileName = segments.isEmpty ? 'Unknown' : segments.last;
         final targetPath = '${targetFolder.path}/$fileName';
 
         // Don't move to itself or a subfolder of itself
-        if (source.path == targetFolder.path || targetFolder.path.startsWith('${source.path}/')) {
+        if (source.path == targetFolder.path ||
+            targetFolder.path.startsWith('${source.path}/')) {
           return;
         }
 

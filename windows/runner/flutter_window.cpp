@@ -174,6 +174,32 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  // Register focus management Method Channel
+  focus_channel_ = std::make_unique<flutter::MethodChannel<>>(
+      flutter_controller_->engine()->messenger(),
+      "app.pod/focus_manager",
+      &flutter::StandardMethodCodec::GetInstance());
+
+  focus_channel_->SetMethodCallHandler(
+      [this](const flutter::MethodCall<>& call,
+             std::unique_ptr<flutter::MethodResult<>> result) {
+        if (call.method_name() == "savePreviousApp") {
+          HWND fg = GetForegroundWindow();
+          if (fg && fg != GetHandle()) {
+            previous_hwnd_ = fg;
+          }
+          result->Success();
+        } else if (call.method_name() == "restorePreviousApp") {
+          if (previous_hwnd_ && IsWindow(previous_hwnd_)) {
+            SetForegroundWindow(previous_hwnd_);
+          }
+          previous_hwnd_ = nullptr;
+          result->Success();
+        } else {
+          result->NotImplemented();
+        }
+      });
+
   flutter_controller_->ForceRedraw();
 
   return true;
@@ -182,6 +208,9 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   if (method_channel_) {
     method_channel_ = nullptr;
+  }
+  if (focus_channel_) {
+    focus_channel_ = nullptr;
   }
 
   // Shutdown GDI+

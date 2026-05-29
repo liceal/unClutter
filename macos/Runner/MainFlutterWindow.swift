@@ -4,6 +4,7 @@ import FlutterMacOS
 class MainFlutterWindow: NSWindow {
   private var globalMonitor: Any?
   private var localMonitor: Any?
+  private var previousFrontmostApp: NSRunningApplication?
 
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
@@ -53,6 +54,20 @@ class MainFlutterWindow: NSWindow {
         // Explicitly focus and activate the window/app
         self.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        result(nil)
+      } else if call.method == "savePreviousApp" {
+        // Remember the currently frontmost app (excluding our own) before we steal focus
+        if let frontmost = NSWorkspace.shared.frontmostApplication,
+           frontmost.bundleIdentifier != Bundle.main.bundleIdentifier {
+          self.previousFrontmostApp = frontmost
+        }
+        result(nil)
+      } else if call.method == "restorePreviousApp" {
+        // Restore focus to the previously saved app
+        if let prev = self.previousFrontmostApp, !prev.isTerminated {
+          prev.activate(options: [.activateIgnoringOtherApps])
+        }
+        self.previousFrontmostApp = nil
         result(nil)
       } else {
         result(FlutterMethodNotImplemented)
