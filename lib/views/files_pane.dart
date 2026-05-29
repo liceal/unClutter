@@ -28,6 +28,7 @@ class _FilesPaneState extends State<FilesPane> {
   final ScrollController _gridScrollController = ScrollController();
   final ScrollController _detailsScrollController = ScrollController();
   bool _isDragDropReady = false;
+  bool _showSizeSlider = false;
 
   @override
   void initState() {
@@ -350,6 +351,59 @@ class _FilesPaneState extends State<FilesPane> {
                         ),
                       ),
                       SizedBox(width: isCompact ? 2 : 4),
+                      if (_showSizeSlider) ...[
+                        SizedBox(
+                          width: 80,
+                          child: SliderTheme(
+                            data: SliderTheme.of(context).copyWith(
+                              trackHeight: 2,
+                              thumbShape: const RoundSliderThumbShape(enabledThumbRadius: 5),
+                              overlayShape: const RoundSliderOverlayShape(overlayRadius: 10),
+                              activeTrackColor: widget.isDark ? Colors.white60 : Colors.black54,
+                              inactiveTrackColor: widget.isDark ? Colors.white12 : Colors.black12,
+                              thumbColor: widget.isDark ? Colors.white : Colors.black87,
+                            ),
+                            child: Slider(
+                              value: widget.state.fileDisplaySize,
+                              min: 60.0,
+                              max: 160.0,
+                              onChanged: (val) {
+                                widget.state.updateFileDisplaySize(val);
+                              },
+                            ),
+                          ),
+                        ),
+                        SizedBox(width: isCompact ? 2 : 4),
+                      ],
+                      Tooltip(
+                        message: '调整显示大小',
+                        child: MouseRegion(
+                          cursor: SystemMouseCursors.click,
+                          child: AnimatedPress(
+                            onTap: () => setState(() => _showSizeSlider = !_showSizeSlider),
+                            child: Container(
+                              width: isCompact ? 26 : 32,
+                              height: isCompact ? 26 : 32,
+                              decoration: BoxDecoration(
+                                color: _showSizeSlider
+                                    ? (widget.isDark
+                                        ? Colors.white.withOpacity(0.12)
+                                        : Colors.black.withOpacity(0.08))
+                                    : (widget.isDark
+                                        ? Colors.white.withOpacity(0.06)
+                                        : Colors.black.withOpacity(0.04)),
+                                borderRadius: BorderRadius.circular(isCompact ? 0 : 8),
+                              ),
+                              child: Icon(
+                                Icons.photo_size_select_large_rounded,
+                                size: 15,
+                                color: widget.isDark ? Colors.white60 : Colors.black54,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                      SizedBox(width: isCompact ? 2 : 4),
                       MouseRegion(
                         cursor: SystemMouseCursors.click,
                         child: AnimatedPress(
@@ -641,8 +695,8 @@ class _FilesPaneState extends State<FilesPane> {
       key: const PageStorageKey('files_grid_view'),
       controller: _gridScrollController,
       physics: const BouncingScrollPhysics(),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 110,
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: widget.state.fileDisplaySize,
         crossAxisSpacing: 6,
         mainAxisSpacing: 6,
         childAspectRatio: 0.85,
@@ -674,6 +728,7 @@ class _FilesPaneState extends State<FilesPane> {
   }
 
   Widget _buildDetailsView(List<FileSystemEntity> files) {
+    final scaleFactor = (widget.state.fileDisplaySize / 110.0).clamp(0.8, 1.4);
     return Column(
       children: [
         // Table Headers
@@ -681,37 +736,37 @@ class _FilesPaneState extends State<FilesPane> {
           padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
           child: Row(
             children: [
-              const Expanded(
+              Expanded(
                 child: Text(
                   '名称',
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 10 * scaleFactor,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey,
                   ),
                 ),
               ),
               const SizedBox(width: 4),
-              const SizedBox(
-                width: 50,
+              SizedBox(
+                width: 50 * scaleFactor,
                 child: Text(
                   '大小',
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 10 * scaleFactor,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey,
                   ),
                 ),
               ),
               const SizedBox(width: 8),
-              const SizedBox(
-                width: 65,
+              SizedBox(
+                width: 65 * scaleFactor,
                 child: Text(
                   '创建时间',
                   textAlign: TextAlign.right,
                   style: TextStyle(
-                    fontSize: 10,
+                    fontSize: 10 * scaleFactor,
                     fontWeight: FontWeight.bold,
                     color: Colors.grey,
                   ),
@@ -961,7 +1016,9 @@ class _GridFileCardState extends State<_GridFileCard> {
 
   @override
   Widget build(BuildContext context) {
-    return sdd.DragItemWidget(
+    final isDir = widget.file is Directory;
+
+    final card = sdd.DragItemWidget(
       dragItemProvider: (request) {
         final item = sdd.DragItem(localData: 'internal_file_drag');
         item.add(sdd.Formats.fileUri(Uri.file(widget.file.path)));
@@ -1070,6 +1127,41 @@ class _GridFileCardState extends State<_GridFileCard> {
         ),
       ),
     );
+
+    if (isDir) {
+      return sdd.DropRegion(
+        formats: const [sdd.Formats.fileUri],
+        onDropOver: (event) {
+          return sdd.DropOperation.copy;
+        },
+        onPerformDrop: (event) async {
+          final items = event.session.items;
+          if (items.isEmpty) return;
+
+          for (final item in items) {
+            final reader = item.dataReader;
+            if (reader != null && reader.canProvide(sdd.Formats.fileUri)) {
+              reader.getValue<Uri>(sdd.Formats.fileUri, (uri) {
+                if (uri != null) {
+                  final sourcePath = uri.toFilePath();
+                  if (item.localData == 'internal_file_drag') {
+                    final sourceEntity = FileSystemEntity.isDirectorySync(sourcePath)
+                        ? Directory(sourcePath)
+                        : File(sourcePath);
+                    AppState().moveFileToFolder(sourceEntity, Directory(widget.file.path));
+                  } else {
+                    AppState().addDroppedFiles([sourcePath], targetDir: Directory(widget.file.path));
+                  }
+                }
+              });
+            }
+          }
+        },
+        child: card,
+      );
+    }
+
+    return card;
   }
 }
 
@@ -1373,7 +1465,10 @@ class _DetailsFileCardState extends State<_DetailsFileCard> {
 
   @override
   Widget build(BuildContext context) {
-    return sdd.DragItemWidget(
+    final scaleFactor = (AppState().fileDisplaySize / 110.0).clamp(0.8, 1.4);
+    final isDir = widget.file is Directory;
+
+    final card = sdd.DragItemWidget(
       dragItemProvider: (request) {
         final item = sdd.DragItem(localData: 'internal_file_drag');
         item.add(sdd.Formats.fileUri(Uri.file(widget.file.path)));
@@ -1409,7 +1504,7 @@ class _DetailsFileCardState extends State<_DetailsFileCard> {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 120),
                   margin: EdgeInsets.only(bottom: AppState().settings.themeStyle == ThemeStyle.compact ? 1 : 2),
-                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: AppState().settings.themeStyle == ThemeStyle.compact ? 2 : 4),
+                  padding: EdgeInsets.symmetric(horizontal: 6, vertical: (AppState().settings.themeStyle == ThemeStyle.compact ? 2 : 4) * scaleFactor),
                   decoration: BoxDecoration(
                     color: _isHovered
                         ? (widget.isDark
@@ -1422,8 +1517,8 @@ class _DetailsFileCardState extends State<_DetailsFileCard> {
                     children: [
                       // Icon
                       Container(
-                        width: 20,
-                        height: 20,
+                        width: 20 * scaleFactor,
+                        height: 20 * scaleFactor,
                         decoration: BoxDecoration(
                           color: widget.iconColor.withOpacity(0.12),
                           borderRadius: BorderRadius.circular(AppState().settings.themeStyle == ThemeStyle.compact ? 0 : 4),
@@ -1436,12 +1531,12 @@ class _DetailsFileCardState extends State<_DetailsFileCard> {
                                   fit: BoxFit.cover,
                                   errorBuilder: (_, __, ___) => Icon(
                                     widget.icon,
-                                    size: 11,
+                                    size: 11 * scaleFactor,
                                     color: widget.iconColor,
                                   ),
                                 ),
                               )
-                            : Icon(widget.icon, size: 11, color: widget.iconColor),
+                            : Icon(widget.icon, size: 11 * scaleFactor, color: widget.iconColor),
                       ),
                       const SizedBox(width: 6),
                       // Name
@@ -1451,7 +1546,7 @@ class _DetailsFileCardState extends State<_DetailsFileCard> {
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
                           style: TextStyle(
-                            fontSize: 11,
+                            fontSize: 11 * scaleFactor,
                             fontWeight: FontWeight.w500,
                             color: widget.isDark ? Colors.white70 : Colors.black87,
                           ),
@@ -1460,13 +1555,13 @@ class _DetailsFileCardState extends State<_DetailsFileCard> {
                       const SizedBox(width: 4),
                       // Size
                       SizedBox(
-                        width: 50,
+                        width: 50 * scaleFactor,
                         child: Text(
                           widget.sizeStr,
                           textAlign: TextAlign.right,
                           maxLines: 1,
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 10 * scaleFactor,
                             color: widget.isDark ? Colors.white38 : Colors.black45,
                           ),
                         ),
@@ -1474,13 +1569,13 @@ class _DetailsFileCardState extends State<_DetailsFileCard> {
                       const SizedBox(width: 8),
                       // Date
                       SizedBox(
-                        width: 65,
+                        width: 65 * scaleFactor,
                         child: Text(
                           widget.dateStr,
                           textAlign: TextAlign.right,
                           maxLines: 1,
                           style: TextStyle(
-                            fontSize: 10,
+                            fontSize: 10 * scaleFactor,
                             color: widget.isDark ? Colors.white38 : Colors.black45,
                           ),
                         ),
@@ -1494,5 +1589,40 @@ class _DetailsFileCardState extends State<_DetailsFileCard> {
         ),
       ),
     );
+
+    if (isDir) {
+      return sdd.DropRegion(
+        formats: const [sdd.Formats.fileUri],
+        onDropOver: (event) {
+          return sdd.DropOperation.copy;
+        },
+        onPerformDrop: (event) async {
+          final items = event.session.items;
+          if (items.isEmpty) return;
+
+          for (final item in items) {
+            final reader = item.dataReader;
+            if (reader != null && reader.canProvide(sdd.Formats.fileUri)) {
+              reader.getValue<Uri>(sdd.Formats.fileUri, (uri) {
+                if (uri != null) {
+                  final sourcePath = uri.toFilePath();
+                  if (item.localData == 'internal_file_drag') {
+                    final sourceEntity = FileSystemEntity.isDirectorySync(sourcePath)
+                        ? Directory(sourcePath)
+                        : File(sourcePath);
+                    AppState().moveFileToFolder(sourceEntity, Directory(widget.file.path));
+                  } else {
+                    AppState().addDroppedFiles([sourcePath], targetDir: Directory(widget.file.path));
+                  }
+                }
+              });
+            }
+          }
+        },
+        child: card,
+      );
+    }
+
+    return card;
   }
 }

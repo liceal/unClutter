@@ -59,6 +59,48 @@ class MainFlutterWindow: NSWindow {
       }
     }
 
+    // Register MethodChannel for clipboard owner info (app icon and name)
+    let clipboardOwnerChannel = FlutterMethodChannel(
+      name: "app.pod/clipboard_owner",
+      binaryMessenger: flutterViewController.engine.binaryMessenger
+    )
+
+    clipboardOwnerChannel.setMethodCallHandler { (call, result) in
+      if call.method == "getClipboardOwner" {
+        guard let frontmostApp = NSWorkspace.shared.frontmostApplication else {
+          result([String: Any]())
+          return
+        }
+        
+        let appName = frontmostApp.localizedName ?? "Unknown"
+        var iconPath = ""
+        
+        if let icon = frontmostApp.icon {
+          if let tiffData = icon.tiffRepresentation,
+             let bitmapImage = NSBitmapImageRep(data: tiffData),
+             let pngData = bitmapImage.representation(using: .png, properties: [:]) {
+            let tempDir = FileManager.default.temporaryDirectory
+            let iconsDir = tempDir.appendingPathComponent("pod_icons")
+            try? FileManager.default.createDirectory(at: iconsDir, withIntermediateDirectories: true, attributes: nil)
+            let destURL = iconsDir.appendingPathComponent("\(appName).png")
+            do {
+              try pngData.write(to: destURL)
+              iconPath = destURL.path
+            } catch {
+              // ignore
+            }
+          }
+        }
+        
+        var response = [String: Any]()
+        response["name"] = appName
+        response["iconPath"] = iconPath
+        result(response)
+      } else {
+        result(FlutterMethodNotImplemented)
+      }
+    }
+
     globalMonitor = NSEvent.addGlobalMonitorForEvents(matching: .scrollWheel) { [weak self] event in
       self?.handleScrollEvent(event, channel: channel)
     }

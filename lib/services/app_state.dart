@@ -44,6 +44,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
   bool isDialogOpen = false;
   bool isMouseInside = false;
   double lastCalculatedWidth = 800.0;
+  double fileDisplaySize = 110.0;
 
   String _searchClipboardQuery = '';
   String _searchNotesQuery = '';
@@ -390,6 +391,11 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     notifyListeners();
   }
 
+  void updateFileDisplaySize(double value) {
+    fileDisplaySize = value;
+    notifyListeners();
+  }
+
   void startAutoCollapseTimer() {
     _autoCollapseTimer?.cancel();
     if (isDialogOpen || isMouseInside) return;
@@ -595,7 +601,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
               String? appName;
               String? appIconPath;
 
-              if (Platform.isWindows) {
+              if (Platform.isWindows || Platform.isMacOS) {
                 try {
                   final result = await _clipboardOwnerChannel.invokeMethod(
                     'getClipboardOwner',
@@ -829,8 +835,8 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     });
   }
 
-  Future<void> addDroppedFiles(List<String> filePaths) async {
-    final destPath = await _getFilesDirectoryPath();
+  Future<void> addDroppedFiles(List<String> filePaths, {Directory? targetDir}) async {
+    final destPath = targetDir?.path ?? await _getFilesDirectoryPath();
     for (var filePath in filePaths) {
       try {
         if (FileSystemEntity.isDirectorySync(filePath)) {
@@ -959,6 +965,30 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     } catch (e) {
       debugPrint('Failed to create new directory: $e');
     }
+  }
+
+  Future<void> moveFileToFolder(FileSystemEntity source, Directory targetFolder) async {
+    try {
+      if (source.existsSync() && targetFolder.existsSync()) {
+        final segments = source.uri.pathSegments.where((s) => s.isNotEmpty).toList();
+        final fileName = segments.isEmpty ? 'Unknown' : segments.last;
+        final targetPath = '${targetFolder.path}/$fileName';
+
+        // Don't move to itself or a subfolder of itself
+        if (source.path == targetFolder.path || targetFolder.path.startsWith('${source.path}/')) {
+          return;
+        }
+
+        if (source is File) {
+          await source.rename(targetPath);
+        } else if (source is Directory) {
+          await source.rename(targetPath);
+        }
+      }
+    } catch (e) {
+      debugPrint('Failed to move file to folder: $e');
+    }
+    await _scanStoredFiles();
   }
 
   Future<void> openFilesDirectoryInExplorer() async {
