@@ -88,6 +88,19 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     return await screenRetriever.getPrimaryDisplay();
   }
 
+  /// Get the active screen dimensions and position containing the mouse cursor
+  Future<Map<String, double>> getActiveScreenInfo() async {
+    final display = await _getCurrentDisplay();
+    final double sw = display.size.width;
+    final double sx = (display.visiblePosition ?? Offset.zero).dx;
+    final double sy = (display.visiblePosition ?? Offset.zero).dy;
+    return {
+      'x': sx,
+      'width': sw,
+      'visibleY': sy,
+    };
+  }
+
   bool isItemFavorite(String content) {
     return clipboardFavorites.any((x) => x.content == content);
   }
@@ -205,7 +218,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
       final display =
           targetDisplay ??
           _currentDisplay ??
-          await screenRetriever.getPrimaryDisplay();
+          await _getCurrentDisplay();
       final screenWidth = display.size.width;
 
       double w;
@@ -254,20 +267,24 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
         });
       } else {
         // Collapsed state: hide or position collapsed bar
-        await windowManager.setHasShadow(false);
-        if (settings.triggerMode == TriggerMode.hotkeyOnly) {
-          await windowManager.hide();
-        } else if (Platform.isMacOS) {
-          await windowManager.setIgnoreMouseEvents(true);
-          await windowManager.hide();
-        } else {
-          // Windows: position collapsed bar on the correct screen
-          final x = (screenWidth - wCollapsed) / 2;
-          await windowManager.setBounds(
-            Rect.fromLTWH(x, 0, wCollapsed, hCollapsed),
-          );
-          if (!await windowManager.isVisible()) {
-            await windowManager.show();
+        // Only reset the native window configuration if the panel is currently collapsed.
+        // If the panel is expanded (e.g. showing the settings dialog), we do not want to hide the window.
+        if (!isExpanded) {
+          await windowManager.setHasShadow(false);
+          if (settings.triggerMode == TriggerMode.hotkeyOnly) {
+            await windowManager.hide();
+          } else if (Platform.isMacOS) {
+            await windowManager.setIgnoreMouseEvents(true);
+            await windowManager.hide();
+          } else {
+            // Windows: position collapsed bar on the correct screen
+            final x = (screenWidth - wCollapsed) / 2;
+            await windowManager.setBounds(
+              Rect.fromLTWH(x, 0, wCollapsed, hCollapsed),
+            );
+            if (!await windowManager.isVisible()) {
+              await windowManager.show();
+            }
           }
         }
       }

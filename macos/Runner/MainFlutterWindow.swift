@@ -7,6 +7,56 @@ class MainFlutterWindow: NSWindow {
   private var previousFrontmostApp: NSRunningApplication?
   private var lastScrollTime: TimeInterval = 0
 
+  override var canBecomeKey: Bool {
+    return true
+  }
+
+  override var canBecomeMain: Bool {
+    return true
+  }
+
+  private var dummyCloseButton: NSButton?
+  private var dummyMiniaturizeButton: NSButton?
+  private var dummyZoomButton: NSButton?
+  private var dummyTitleBarView: NSView?
+  private var dummyTitleBarContainer: NSView?
+
+  override func standardWindowButton(_ button: NSWindow.ButtonType) -> NSButton? {
+    if let realButton = super.standardWindowButton(button) {
+      return realButton
+    }
+
+    if dummyCloseButton == nil {
+      let close = NSButton()
+      let min = NSButton()
+      let zoom = NSButton()
+      let titleBar = NSView()
+      let container = NSView()
+      
+      titleBar.addSubview(close)
+      titleBar.addSubview(min)
+      titleBar.addSubview(zoom)
+      container.addSubview(titleBar)
+      
+      dummyCloseButton = close
+      dummyMiniaturizeButton = min
+      dummyZoomButton = zoom
+      dummyTitleBarView = titleBar
+      dummyTitleBarContainer = container
+    }
+
+    switch button {
+    case .closeButton:
+      return dummyCloseButton
+    case .miniaturizeButton:
+      return dummyMiniaturizeButton
+    case .zoomButton:
+      return dummyZoomButton
+    default:
+      return nil
+    }
+  }
+
   override func awakeFromNib() {
     let flutterViewController = FlutterViewController()
     let windowFrame = self.frame
@@ -29,7 +79,7 @@ class MainFlutterWindow: NSWindow {
       contentView.layer?.cornerRadius = 0
       contentView.layer?.masksToBounds = false
     }
-    
+
     RegisterGeneratedPlugins(registry: flutterViewController)
 
     super.awakeFromNib()
@@ -203,24 +253,21 @@ class MainFlutterWindow: NSWindow {
     }
   }
 
-  private func getMenuBarScreen() -> NSScreen? {
+  private func getTopEdgeScreen() -> NSScreen? {
     let mouseLoc = NSEvent.mouseLocation
     for screen in NSScreen.screens {
       let frame = screen.frame
-      let visibleFrame = screen.visibleFrame
-      if visibleFrame.maxY < frame.maxY {
-        let extendedMaxY = visibleFrame.maxY - 20.0
-        if mouseLoc.x >= frame.minX && mouseLoc.x <= frame.maxX &&
-           mouseLoc.y >= extendedMaxY && mouseLoc.y <= frame.maxY {
-          return screen
-        }
+      // Check if mouse is within the top 20 pixels of the screen
+      if mouseLoc.x >= frame.minX && mouseLoc.x <= frame.maxX &&
+         mouseLoc.y >= frame.maxY - 20.0 && mouseLoc.y <= frame.maxY {
+        return screen
       }
     }
     return nil
   }
 
   private func handleScrollEvent(_ event: NSEvent, channel: FlutterMethodChannel) {
-    guard let targetScreen = getMenuBarScreen() else { return }
+    guard let targetScreen = getTopEdgeScreen() else { return }
 
     let deltaY = event.scrollingDeltaY != 0 ? event.scrollingDeltaY : event.deltaY
     guard deltaY != 0 else { return }

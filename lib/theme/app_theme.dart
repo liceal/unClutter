@@ -35,16 +35,18 @@ class AppTheme {
     required bool isDark,
     double radius = panelBorderRadius,
     ThemeStyle themeStyle = ThemeStyle.normal,
+    Color? color,
+    Color? borderColor,
   }) {
     final double computedRadius = (themeStyle == ThemeStyle.compact) ? 0.0 : radius;
     return BoxDecoration(
-      color: isDark ? darkBg : lightBg,
+      color: color ?? (isDark ? darkBg : lightBg),
       borderRadius: BorderRadius.only(
         bottomLeft: Radius.circular(computedRadius),
         bottomRight: Radius.circular(computedRadius),
       ),
       border: Border.all(
-        color: isDark ? darkBorder : lightBorder,
+        color: borderColor ?? (isDark ? darkBorder : lightBorder),
         width: 1.0,
       ),
     );
@@ -73,11 +75,13 @@ class AppTheme {
       useMaterial3: true,
       brightness: isDark ? Brightness.dark : Brightness.light,
       primaryColor: accent,
-      scaffoldBackgroundColor: Colors.transparent,
+      scaffoldBackgroundColor: isDark ? darkBg : lightBg,
+      dividerColor: isDark ? Colors.white10 : Colors.black12,
       colorScheme: ColorScheme.fromSeed(
         seedColor: accent,
         brightness: isDark ? Brightness.dark : Brightness.light,
         surface: isDark ? darkPanelBg : lightPanelBg,
+        outline: isDark ? darkBorder : lightBorder,
       ),
       textTheme: const TextTheme(
         titleMedium: TextStyle(fontWeight: FontWeight.bold, fontSize: 15),

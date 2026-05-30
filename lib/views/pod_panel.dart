@@ -187,27 +187,19 @@ class _PodPanelState extends State<PodPanel>
     const double expandedH = 350.0;
     const double dialogH = 620.0;
 
-    // 只取一次屏幕和菜单栏信息，后续复用，避免多次异步 I/O
-    double screenWidth = 0;
-    double menuBarHeight = 0;
-    try {
-      final primaryDisplay = await screenRetriever.getPrimaryDisplay();
-      screenWidth = primaryDisplay.size.width;
-      if (Platform.isMacOS) {
-        menuBarHeight = primaryDisplay.visiblePosition?.dy ?? 24.0;
-      }
-    } catch (_) {}
+    final screenInfo = await widget.state.getActiveScreenInfo();
+    final double screenWidth = screenInfo['width']!;
+    final double screenX = screenInfo['x']!;
+    final double menuBarHeight = screenInfo['visibleY']!;
 
     // 使用已缓存的面板宽度，避免重复计算
     final double panelW = widget.state.lastCalculatedWidth;
 
     // 展开窗口高度以容纳设置弹窗
-    if (screenWidth > 0) {
-      final x = (screenWidth - panelW) / 2;
-      await windowManager.setBounds(
-        Rect.fromLTWH(x, menuBarHeight, panelW, dialogH),
-      );
-    }
+    final x = screenX + (screenWidth - panelW) / 2;
+    await windowManager.setBounds(
+      Rect.fromLTWH(x, menuBarHeight, panelW, dialogH),
+    );
 
     if (!mounted) return;
 
@@ -223,15 +215,12 @@ class _PodPanelState extends State<PodPanel>
 
     widget.state.setDialogOpen(false);
 
-    // 弹窗关闭后：直接用 lastCalculatedWidth（updateSettings 已更新）+ 缓存的 screenWidth
-    // 无需再次调用 screenRetriever，消除关闭卡顿
+    // 弹窗关闭后：直接用 lastCalculatedWidth（updateSettings 已更新）
     final double updatedPanelW = widget.state.lastCalculatedWidth;
-    if (screenWidth > 0) {
-      final x = (screenWidth - updatedPanelW) / 2;
-      await windowManager.setBounds(
-        Rect.fromLTWH(x, menuBarHeight, updatedPanelW, expandedH),
-      );
-    }
+    final rx = screenX + (screenWidth - updatedPanelW) / 2;
+    await windowManager.setBounds(
+      Rect.fromLTWH(rx, menuBarHeight, updatedPanelW, expandedH),
+    );
 
     // 设置关闭后若鼠标不在面板内，启动自动收起计时器
     if (!_isMouseInside) {
@@ -250,266 +239,283 @@ class _PodPanelState extends State<PodPanel>
           widget.state.settings.themeColorName,
         );
 
-        // Background and layout styling configurations
-        final dividerColor = isDark ? Colors.white10 : Colors.black12;
-
-        return Theme(
+        return AnimatedTheme(
           data: theme,
-          child: Focus(
-            autofocus: true,
-            onKeyEvent: (node, event) {
-              if (event is KeyDownEvent &&
-                  event.logicalKey == LogicalKeyboardKey.escape) {
-                if (widget.state.isExpanded && !widget.state.isAnimating) {
-                  widget.state.collapsePanel();
-                  return KeyEventResult.handled;
-                }
-              }
-              return KeyEventResult.ignored;
-            },
-            child: Scaffold(
-              backgroundColor: Colors.transparent,
-              body: MouseRegion(
-                // 包裹整个窗口区域，鼠标移出窗口时触发 onExit
-                // 注意：这里不调用 setState，仅操作 Timer，不会引起 mouse_tracker 断言
-                onEnter: (_) => _onMouseEnteredPanel(),
-                onExit: (_) => _onMouseExitedPanel(),
-                child: Stack(
-                  clipBehavior: Clip.none,
-                  children: [
-                    // 1. Sliding Panel Box
-                    OverflowBox(
-                      minWidth: widget.state.lastCalculatedWidth,
-                      maxWidth: widget.state.lastCalculatedWidth,
-                      minHeight: 350,
-                      maxHeight: 350,
-                      alignment: Alignment.topCenter,
-                      child: ClipRect(
-                        child: SlideTransition(
-                          position: _slideAnimation,
-                          child: RepaintBoundary(
-                            child: Container(
-                            height: 350,
-                            margin:
-                                (widget.state.settings.themeStyle ==
-                                        ThemeStyle.compact ||
-                                    (widget.state.settings.isWidthPercentage &&
-                                        widget
-                                                .state
-                                                .settings
-                                                .panelWidthPercent >=
-                                            100))
-                                ? EdgeInsets.zero
-                                : const EdgeInsets.symmetric(horizontal: 6),
-                            decoration: AppTheme.getFrostedDecoration(
-                              isDark: isDark,
-                              themeStyle: widget.state.settings.themeStyle,
-                            ),
+          duration: const Duration(milliseconds: 250),
+          curve: Curves.easeInOut,
+          child: Builder(
+            builder: (context) {
+              final currentTheme = Theme.of(context);
+              final dividerColor = currentTheme.dividerColor;
+              final animatedIsDark = currentTheme.brightness == Brightness.dark;
 
-                            child: Column(
-                              children: [
-                                // Main Columns Content
-                                Expanded(
-                                  child: Row(
+              return Focus(
+                autofocus: true,
+                onKeyEvent: (node, event) {
+                  if (event is KeyDownEvent &&
+                      event.logicalKey == LogicalKeyboardKey.escape) {
+                    if (widget.state.isExpanded && !widget.state.isAnimating) {
+                      widget.state.collapsePanel();
+                      return KeyEventResult.handled;
+                    }
+                  }
+                  return KeyEventResult.ignored;
+                },
+                child: Scaffold(
+                  backgroundColor: Colors.transparent,
+                  body: MouseRegion(
+                    // 包裹整个窗口区域，鼠标移出窗口时触发 onExit
+                    // 注意：这里不调用 setState，仅操作 Timer，不会引起 mouse_tracker 断言
+                    onEnter: (_) => _onMouseEnteredPanel(),
+                    onExit: (_) => _onMouseExitedPanel(),
+                    child: Stack(
+                      clipBehavior: Clip.none,
+                      children: [
+                        // 1. Sliding Panel Box
+                        OverflowBox(
+                          minWidth: widget.state.lastCalculatedWidth,
+                          maxWidth: widget.state.lastCalculatedWidth,
+                          minHeight: 350,
+                          maxHeight: 350,
+                          alignment: Alignment.topCenter,
+                          child: ClipRect(
+                            child: SlideTransition(
+                              position: _slideAnimation,
+                              child: RepaintBoundary(
+                                child: AnimatedContainer(
+                                  duration: const Duration(milliseconds: 250),
+                                  curve: Curves.easeInOut,
+                                  height: 350,
+                                  margin: (widget.state.settings.themeStyle ==
+                                              ThemeStyle.compact ||
+                                          (widget.state.settings.isWidthPercentage &&
+                                              widget.state.settings
+                                                      .panelWidthPercent >=
+                                                  100))
+                                      ? EdgeInsets.zero
+                                      : const EdgeInsets.symmetric(
+                                          horizontal: 6),
+                                  decoration: AppTheme.getFrostedDecoration(
+                                    isDark: animatedIsDark,
+                                    themeStyle:
+                                        widget.state.settings.themeStyle,
+                                    color: currentTheme.scaffoldBackgroundColor,
+                                    borderColor: currentTheme.colorScheme.outline,
+                                  ),
+                                  child: Column(
                                     children: [
-                                      // Pane 1: Clipboard
+                                      // Main Columns Content
                                       Expanded(
-                                        child: ClipboardPane(
-                                          state: widget.state,
-                                          isDark: isDark,
+                                        child: Row(
+                                          children: [
+                                            // Pane 1: Clipboard
+                                            Expanded(
+                                              child: ClipboardPane(
+                                                state: widget.state,
+                                                isDark: animatedIsDark,
+                                              ),
+                                            ),
+                                            VerticalDivider(
+                                              width: 1,
+                                              thickness: 1,
+                                              color: dividerColor,
+                                            ),
+                                            // Pane 2: Files Dropzone
+                                            Expanded(
+                                              child: FilesPane(
+                                                state: widget.state,
+                                                isDark: animatedIsDark,
+                                              ),
+                                            ),
+                                            VerticalDivider(
+                                              width: 1,
+                                              thickness: 1,
+                                              color: dividerColor,
+                                            ),
+                                            // Pane 3: Notes
+                                            Expanded(
+                                              child: NotesPane(
+                                                state: widget.state,
+                                                isDark: animatedIsDark,
+                                                onShowSettings: _showSettings,
+                                              ),
+                                            ),
+                                          ],
                                         ),
                                       ),
-                                      VerticalDivider(
-                                        width: 1,
-                                        thickness: 1,
-                                        color: dividerColor,
-                                      ),
-                                      // Pane 2: Files Dropzone
-                                      Expanded(
-                                        child: FilesPane(
-                                          state: widget.state,
-                                          isDark: isDark,
+                                      if (!Platform.isMacOS) ...[
+                                        Divider(
+                                          height: 1,
+                                          thickness: 1,
+                                          color: dividerColor,
                                         ),
-                                      ),
-                                      VerticalDivider(
-                                        width: 1,
-                                        thickness: 1,
-                                        color: dividerColor,
-                                      ),
-                                      // Pane 3: Notes
-                                      Expanded(
-                                        child: NotesPane(
-                                          state: widget.state,
-                                          isDark: isDark,
-                                          onShowSettings: _showSettings,
+                                        Container(
+                                          height: 24,
+                                          padding: const EdgeInsets.symmetric(
+                                            horizontal: 14,
+                                          ),
+                                          child: Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.spaceBetween,
+                                            children: [
+                                              // Left: Settings Button
+                                              IconButton(
+                                                icon: const Icon(
+                                                  Icons.settings_outlined,
+                                                  size: 13,
+                                                ),
+                                                onPressed: _showSettings,
+                                                tooltip: '设置',
+                                                constraints:
+                                                    const BoxConstraints(),
+                                                padding: EdgeInsets.zero,
+                                              ),
+
+                                              // Center: Grab Handle / Close indicator (tap to collapse)
+                                              GestureDetector(
+                                                behavior: HitTestBehavior.opaque,
+                                                onTap: () => widget.state
+                                                    .collapsePanel(),
+                                                child: MouseRegion(
+                                                  cursor:
+                                                      SystemMouseCursors.click,
+                                                  child: Container(
+                                                    width: 80,
+                                                    height: 24,
+                                                    alignment: Alignment.center,
+                                                    child: Container(
+                                                      width: 36,
+                                                      height: 4,
+                                                      decoration: BoxDecoration(
+                                                        color: (animatedIsDark
+                                                                ? Colors.white
+                                                                : Colors.black)
+                                                            .withOpacity(0.25),
+                                                        borderRadius:
+                                                            BorderRadius.circular(
+                                                                2),
+                                                      ),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ),
+
+                                              // Right: Theme Toggle
+                                              IconButton(
+                                                icon: Icon(
+                                                  animatedIsDark
+                                                      ? Icons
+                                                          .light_mode_outlined
+                                                      : Icons
+                                                          .dark_mode_outlined,
+                                                  size: 13,
+                                                ),
+                                                onPressed: () {
+                                                  widget.state.updateSettings(
+                                                    widget.state.settings
+                                                        .copyWith(
+                                                      isDarkTheme:
+                                                          !animatedIsDark,
+                                                    ),
+                                                  );
+                                                },
+                                                tooltip: '切换主题',
+                                                constraints:
+                                                    const BoxConstraints(),
+                                                padding: EdgeInsets.zero,
+                                              ),
+                                            ],
+                                          ),
                                         ),
-                                      ),
+                                      ],
                                     ],
                                   ),
                                 ),
-                                if (!Platform.isMacOS) ...[
-                                  Divider(
-                                    height: 1,
-                                    thickness: 1,
-                                    color: dividerColor,
-                                  ),
-                                  Container(
-                                    height: 24,
-                                    padding: const EdgeInsets.symmetric(
-                                      horizontal: 14,
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.spaceBetween,
-                                      children: [
-                                        // Left: Settings Button
-                                        IconButton(
-                                          icon: const Icon(
-                                            Icons.settings_outlined,
-                                            size: 13,
-                                          ),
-                                          onPressed: _showSettings,
-                                          tooltip: '设置',
-                                          constraints: const BoxConstraints(),
-                                          padding: EdgeInsets.zero,
-                                        ),
-
-                                        // Center: Grab Handle / Close indicator (tap to collapse)
-                                        GestureDetector(
-                                          behavior: HitTestBehavior.opaque,
-                                          onTap: () =>
-                                              widget.state.collapsePanel(),
-                                          child: MouseRegion(
-                                            cursor: SystemMouseCursors.click,
-                                            child: Container(
-                                              width: 80,
-                                              height: 24,
-                                              alignment: Alignment.center,
-                                              child: Container(
-                                                width: 36,
-                                                height: 4,
-                                                decoration: BoxDecoration(
-                                                  color:
-                                                      (isDark
-                                                              ? Colors.white
-                                                              : Colors.black)
-                                                          .withOpacity(0.25),
-                                                  borderRadius:
-                                                      BorderRadius.circular(2),
-                                                ),
-                                              ),
-                                            ),
-                                          ),
-                                        ),
-
-                                        // Right: Theme Toggle
-                                        IconButton(
-                                          icon: Icon(
-                                            isDark
-                                                ? Icons.light_mode_outlined
-                                                : Icons.dark_mode_outlined,
-                                            size: 13,
-                                          ),
-                                          onPressed: () {
-                                            widget.state.updateSettings(
-                                              widget.state.settings.copyWith(
-                                                isDarkTheme: !isDark,
-                                              ),
-                                            );
-                                          },
-                                          tooltip: '切换主题',
-                                          constraints: const BoxConstraints(),
-                                          padding: EdgeInsets.zero,
-                                        ),
-                                      ],
-                                    ),
-                                  ),
-                                ],
-                              ],
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    ),
-                    ),
 
-                    // 2. 收起时显示的悬浮条：Windows上始终渲染，方便下拉与顶部滑轮收起 (macOS上已取消，改用菜单栏滚动触发)
-                    if (!Platform.isMacOS)
-                      Positioned(
-                        top: 0.0,
-                        left: 0,
-                        right: 0,
-                        height: 3.0,
-                        child: _isDragDropReady
-                            ? sdd.DropRegion(
-                                formats: const [sdd.Formats.fileUri],
-                                onDropEnter: (event) {
-                                  final isInternal = event.session.items.any(
-                                    (item) =>
-                                        item.localData == 'internal_file_drag',
-                                  );
-                                  if (isInternal) return;
-                                  if (!widget.state.isExpanded &&
-                                      !widget.state.isAnimating) {
-                                    widget.state.expandPanel();
-                                  }
-                                },
-                                onDropOver: (event) {
-                                  final isInternal = event.session.items.any(
-                                    (item) =>
-                                        item.localData == 'internal_file_drag',
-                                  );
-                                  return isInternal
-                                      ? sdd.DropOperation.none
-                                      : sdd.DropOperation.copy;
-                                },
-                                onPerformDrop: (event) async {
-                                  // No-op
-                                },
-                                child: MouseRegion(
-                                  cursor: SystemMouseCursors.click,
-                                  onEnter: (_) => _onMouseEnteredTopStrip(),
-                                  onExit: (_) => _onMouseExitedTopStrip(),
-                                  child: Listener(
-                                    behavior: HitTestBehavior.opaque,
-                                    onPointerSignal:
-                                        _handleTopScrollSignal, // 直接复用统一方法
-                                    child: Container(
-                                      color: Platform.isMacOS
-                                          ? Colors.white.withOpacity(0.01)
-                                          : (isDark
+                        // 2. 收起时显示的悬浮条：Windows上始终渲染，方便下拉与顶部滑轮收起 (macOS上已取消，改用菜单栏滚动触发)
+                        if (!Platform.isMacOS)
+                          Positioned(
+                            top: 0.0,
+                            left: 0,
+                            right: 0,
+                            height: 3.0,
+                            child: _isDragDropReady
+                                ? sdd.DropRegion(
+                                    formats: const [sdd.Formats.fileUri],
+                                    onDropEnter: (event) {
+                                      final isInternal = event.session.items
+                                          .any((item) =>
+                                              item.localData ==
+                                              'internal_file_drag');
+                                      if (isInternal) return;
+                                      if (!widget.state.isExpanded &&
+                                          !widget.state.isAnimating) {
+                                        widget.state.expandPanel();
+                                      }
+                                    },
+                                    onDropOver: (event) {
+                                      final isInternal = event.session.items
+                                          .any((item) =>
+                                              item.localData ==
+                                              'internal_file_drag');
+                                      return isInternal
+                                          ? sdd.DropOperation.none
+                                          : sdd.DropOperation.copy;
+                                    },
+                                    onPerformDrop: (event) async {
+                                      // No-op
+                                    },
+                                    child: MouseRegion(
+                                      cursor: SystemMouseCursors.click,
+                                      onEnter: (_) => _onMouseEnteredTopStrip(),
+                                      onExit: (_) => _onMouseExitedTopStrip(),
+                                      child: Listener(
+                                        behavior: HitTestBehavior.opaque,
+                                        onPointerSignal:
+                                            _handleTopScrollSignal, // 直接复用统一方法
+                                        child: Container(
+                                          color: Platform.isMacOS
+                                              ? Colors.white.withOpacity(0.01)
+                                              : (animatedIsDark
+                                                  ? Colors.white
+                                                      .withOpacity(0.1)
+                                                  : Colors.black
+                                                      .withOpacity(0.05)),
+                                        ),
+                                      ),
+                                    ),
+                                  )
+                                : MouseRegion(
+                                    cursor: SystemMouseCursors.click,
+                                    onEnter: (_) => _onMouseEnteredTopStrip(),
+                                    onExit: (_) => _onMouseExitedTopStrip(),
+                                    child: Listener(
+                                      behavior: HitTestBehavior.opaque,
+                                      onPointerSignal:
+                                          _handleTopScrollSignal, // 直接复用统一方法
+                                      child: Container(
+                                        color: Platform.isMacOS
+                                            ? Colors.white.withOpacity(0.01)
+                                            : (animatedIsDark
                                                 ? Colors.white.withOpacity(0.1)
-                                                : Colors.black.withOpacity(
-                                                    0.05,
-                                                  )),
+                                                : Colors.black
+                                                    .withOpacity(0.05)),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              )
-                            : MouseRegion(
-                                cursor: SystemMouseCursors.click,
-                                onEnter: (_) => _onMouseEnteredTopStrip(),
-                                onExit: (_) => _onMouseExitedTopStrip(),
-                                child: Listener(
-                                  behavior: HitTestBehavior.opaque,
-                                  onPointerSignal:
-                                      _handleTopScrollSignal, // 直接复用统一方法
-                                  child: Container(
-                                    color: Platform.isMacOS
-                                        ? Colors.white.withOpacity(0.01)
-                                        : (isDark
-                                              ? Colors.white.withOpacity(0.1)
-                                              : Colors.black.withOpacity(0.05)),
-                                  ),
-                                ),
-                              ),
-                      ),
-                  ],
-                ), // Stack
-              ), // MouseRegion (body)
-            ), // Scaffold
-          ), // Focus
-        );
+                          ),
+                      ],
+                    ), // Stack
+                  ), // MouseRegion (body)
+                ), // Scaffold
+              ); // Focus
+            },
+          ), // Builder
+        ); // AnimatedTheme
       },
     );
   }
