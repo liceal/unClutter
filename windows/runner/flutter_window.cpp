@@ -5,11 +5,14 @@
 #include <shellapi.h>
 #include <cwctype>
 #include <string>
+#include <chrono>
 
 #include "flutter/generated_plugin_registrant.h"
 #include <flutter/standard_method_codec.h>
 
 #pragma comment(lib, "gdiplus.lib")
+
+FlutterWindow* FlutterWindow::scroll_hook_window_ = nullptr;
 
 FlutterWindow::FlutterWindow(const flutter::DartProject& project)
     : project_(project) {}
@@ -200,17 +203,29 @@ bool FlutterWindow::OnCreate() {
         }
       });
 
+  menu_bar_scroll_channel_ = std::make_unique<flutter::MethodChannel<>>(
+      flutter_controller_->engine()->messenger(),
+      "app.pod/menu_bar_scroll",
+      &flutter::StandardMethodCodec::GetInstance());
+
+  InstallMouseHook();
+
   flutter_controller_->ForceRedraw();
 
   return true;
 }
 
 void FlutterWindow::OnDestroy() {
+  RemoveMouseHook();
+
   if (method_channel_) {
     method_channel_ = nullptr;
   }
   if (focus_channel_) {
     focus_channel_ = nullptr;
+  }
+  if (menu_bar_scroll_channel_) {
+    menu_bar_scroll_channel_ = nullptr;
   }
 
   // Shutdown GDI+
@@ -221,6 +236,103 @@ void FlutterWindow::OnDestroy() {
   }
 
   Win32Window::OnDestroy();
+}
+
+void FlutterWindow::InstallMouseHook() {
+  if (mouse_hook_ != nullptr) {
+    return;
+  }
+  scroll_hook_window_ = this;
+  mouse_hook_ =
+      SetWindowsHookEx(WH_MOUSE_LL, LowLevelMouseProc, GetModuleHandle(nullptr), 0);
+}
+
+void FlutterWindow::RemoveMouseHook() {
+  if (mouse_hook_ != nullptr) {
+    UnhookWindowsHookEx(mouse_hook_);
+    mouse_hook_ = nullptr;
+  }
+  if (scroll_hook_window_ == this) {
+    scroll_hook_window_ = nullptr;
+  }
+}
+
+LRESULT CALLBACK FlutterWindow::LowLevelMouseProc(int n_code, WPARAM wparam,
+                                                  LPARAM lparam) {
+  if (n_code == HC_ACTION && wparam == WM_MOUSEWHEEL && scroll_hook_window_) {
+    const auto* mouse = reinterpret_cast<MSLLHOOKSTRUCT*>(lparam);
+    const int wheel_delta = GET_WHEEL_DELTA_WPARAM(mouse->mouseData);
+    scroll_hook_window_->HandleGlobalMouseWheel(mouse->pt, wheel_delta);
+  }
+  return CallNextHookEx(nullptr, n_code, wparam, lparam);
+}
+
+bool FlutterWindow::TryGetTopEdgeMonitorInfo(
+    POINT point,
+    flutter::EncodableMap* screen_info) {
+  HMONITOR monitor = MonitorFromPoint(point, MONITOR_DEFAULTTONULL);
+  if (!monitor) {
+    return false;
+  }
+
+  MONITORINFO monitor_info;
+  monitor_info.cbSize = sizeof(MONITORINFO);
+  if (!GetMonitorInfo(monitor, &monitor_info)) {
+    return false;
+  }
+
+  const RECT& frame = monitor_info.rcMonitor;
+  constexpr LONG kTopEdgeHeight = 20;
+  const bool is_on_top_edge =
+      point.x >= frame.left && point.x < frame.right &&
+      point.y >= frame.top && point.y <= frame.top + kTopEdgeHeight;
+  if (!is_on_top_edge) {
+    return false;
+  }
+
+  const RECT& work = monitor_info.rcWork;
+  (*screen_info)[flutter::EncodableValue("x")] =
+      flutter::EncodableValue(static_cast<double>(frame.left));
+  (*screen_info)[flutter::EncodableValue("y")] =
+      flutter::EncodableValue(static_cast<double>(frame.top));
+  (*screen_info)[flutter::EncodableValue("width")] =
+      flutter::EncodableValue(static_cast<double>(frame.right - frame.left));
+  (*screen_info)[flutter::EncodableValue("height")] =
+      flutter::EncodableValue(static_cast<double>(frame.bottom - frame.top));
+  (*screen_info)[flutter::EncodableValue("visibleY")] =
+      flutter::EncodableValue(static_cast<double>(work.top));
+  (*screen_info)[flutter::EncodableValue("visibleHeight")] =
+      flutter::EncodableValue(static_cast<double>(work.bottom - work.top));
+  return true;
+}
+
+void FlutterWindow::HandleGlobalMouseWheel(POINT point, int wheel_delta) {
+  if (!menu_bar_scroll_channel_ || wheel_delta == 0) {
+    return;
+  }
+
+  flutter::EncodableMap args;
+  if (!TryGetTopEdgeMonitorInfo(point, &args)) {
+    return;
+  }
+
+  // Windows reports negative wheel deltas for a downward scroll. Dart uses
+  // positive dy to expand and negative dy to collapse, matching Flutter's
+  // PointerScrollEvent.scrollDelta.dy convention.
+  const double dy = wheel_delta < 0 ? 1.0 : -1.0;
+  if (dy > 0) {
+    const auto now = std::chrono::steady_clock::now();
+    if (last_scroll_time_ != std::chrono::steady_clock::time_point::min() &&
+        now - last_scroll_time_ < std::chrono::milliseconds(200)) {
+      return;
+    }
+    last_scroll_time_ = now;
+  }
+
+  args[flutter::EncodableValue("dy")] = flutter::EncodableValue(dy);
+  menu_bar_scroll_channel_->InvokeMethod(
+      "onMenuBarScroll",
+      std::make_unique<flutter::EncodableValue>(args));
 }
 
 LRESULT

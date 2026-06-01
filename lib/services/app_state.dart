@@ -62,7 +62,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
 
   bool _didGrabFocus = false;
   Display? _currentDisplay;
-  Map<String, double>? _macScreenInfo;
+  Map<String, double>? _nativeScreenInfo;
   DateTime _lastScrollAction = DateTime.fromMillisecondsSinceEpoch(0);
   double _lastExpandedScreenX = -1;
 
@@ -94,11 +94,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     final double sw = display.size.width;
     final double sx = (display.visiblePosition ?? Offset.zero).dx;
     final double sy = (display.visiblePosition ?? Offset.zero).dy;
-    return {
-      'x': sx,
-      'width': sw,
-      'visibleY': sy,
-    };
+    return {'x': sx, 'width': sw, 'visibleY': sy};
   }
 
   bool isItemFavorite(String content) {
@@ -174,7 +170,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
     await _setupHotkeys();
     _startClipboardMonitoring();
 
-    if (Platform.isMacOS) {
+    if (Platform.isMacOS || Platform.isWindows) {
       _menuBarScrollChannel.setMethodCallHandler((call) async {
         if (call.method == 'onMenuBarScroll') {
           final args = call.arguments;
@@ -184,7 +180,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
             final screenInfo = Map<String, double>.from(
               args.map((k, v) => MapEntry(k as String, (v as num).toDouble())),
             );
-            _macScreenInfo = screenInfo;
+            _nativeScreenInfo = screenInfo;
             _handleMenuBarScroll(dy);
           } else {
             _handleMenuBarScroll((args as num).toDouble());
@@ -216,10 +212,9 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
   }) async {
     try {
       final display =
-          targetDisplay ??
-          _currentDisplay ??
-          await _getCurrentDisplay();
+          targetDisplay ?? _currentDisplay ?? await _getCurrentDisplay();
       final screenWidth = display.size.width;
+      final screenPosition = display.visiblePosition ?? Offset.zero;
 
       double w;
       if (settings.isWidthPercentage) {
@@ -244,11 +239,14 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
           await windowManager.setMinimumSize(const Size(1, 1));
           await windowManager.setAlwaysOnTop(true);
           await windowManager.setHasShadow(false);
+          if (Platform.isWindows) {
+            await windowManager.setIgnoreMouseEvents(false);
+          }
 
           if (settings.triggerMode == TriggerMode.hotkeyOnly) {
             await windowManager.hide();
           } else {
-            final x = (screenWidth - wCollapsed) / 2;
+            final x = screenPosition.dx + (screenWidth - wCollapsed) / 2;
             if (Platform.isMacOS) {
               // WindowOptions already set the size, just position and show
               await _menuBarScrollChannel.invokeMethod(
@@ -259,7 +257,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
               await _menuBarScrollChannel.invokeMethod('showInactive');
             } else {
               await windowManager.setBounds(
-                Rect.fromLTWH(x, 0, wCollapsed, hCollapsed),
+                Rect.fromLTWH(x, screenPosition.dy, wCollapsed, hCollapsed),
               );
               await windowManager.show();
             }
@@ -278,10 +276,11 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
             await windowManager.hide();
           } else {
             // Windows: position collapsed bar on the correct screen
-            final x = (screenWidth - wCollapsed) / 2;
+            final x = screenPosition.dx + (screenWidth - wCollapsed) / 2;
             await windowManager.setBounds(
-              Rect.fromLTWH(x, 0, wCollapsed, hCollapsed),
+              Rect.fromLTWH(x, screenPosition.dy, wCollapsed, hCollapsed),
             );
+            await windowManager.setIgnoreMouseEvents(false);
             if (!await windowManager.isVisible()) {
               await windowManager.show();
             }
@@ -341,7 +340,7 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
 
       // Set native window FIRST, then trigger animation
       if (Platform.isMacOS) {
-        final info = _macScreenInfo;
+        final info = _nativeScreenInfo;
         if (info != null) {
           final sw = info['width']!;
           double w = settings.isWidthPercentage
@@ -366,20 +365,35 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
           // This avoids Flutter timeout issues entirely and gives 60fps animations.
         }
       } else {
-        _currentDisplay = await _getCurrentDisplay();
-        final screenWidth = _currentDisplay!.size.width;
+        final nativeInfo = _nativeScreenInfo;
+        double screenX;
+        double screenY;
+        double screenWidth;
+        if (nativeInfo != null) {
+          screenX = nativeInfo['x']!;
+          screenY = nativeInfo['visibleY'] ?? nativeInfo['y'] ?? 0.0;
+          screenWidth = nativeInfo['width']!;
+        } else {
+          _currentDisplay = await _getCurrentDisplay();
+          final position = _currentDisplay!.visiblePosition ?? Offset.zero;
+          screenX = position.dx;
+          screenY = position.dy;
+          screenWidth = _currentDisplay!.size.width;
+        }
         double w = settings.isWidthPercentage
             ? screenWidth * (settings.panelWidthPercent / 100.0)
             : settings.panelWidth;
         lastCalculatedWidth = w;
+        await windowManager.setIgnoreMouseEvents(false);
+        final targetX = screenX + (screenWidth - w) / 2;
         await windowManager.setBounds(
-          Rect.fromLTWH((screenWidth - w) / 2, 0, w, 350),
+          Rect.fromLTWH(targetX, screenY, w, 350),
         );
         await windowManager.setHasShadow(true);
         if (shouldFocus) {
           _focusManagerChannel.invokeMethod('savePreviousApp');
           await windowManager.show();
-          windowManager.focus();
+          await windowManager.focus();
         } else {
           await windowManager.show(inactive: true);
         }
@@ -435,8 +449,22 @@ class AppState extends ChangeNotifier with WindowListener, TrayListener {
   Future<void> onCollapseAnimationFinished() async {
     isAnimating = false;
     _currentDisplay = null;
-    _macScreenInfo = null;
-    // Keep native window at 350px for fast re-expand
+    _nativeScreenInfo = null;
+
+    if (!Platform.isMacOS) {
+      try {
+        final display = await _getCurrentDisplay();
+        final screenWidth = display.size.width;
+        final position = display.visiblePosition ?? Offset.zero;
+        final x = position.dx + (screenWidth - lastCalculatedWidth) / 2;
+        await windowManager.setBounds(
+          Rect.fromLTWH(x, position.dy, lastCalculatedWidth, 3),
+        );
+        await windowManager.setIgnoreMouseEvents(false);
+      } catch (e) {
+        debugPrint('Failed to resize collapsed window: $e');
+      }
+    }
   }
 
   void cancelCollapseAndExpand() {

@@ -299,7 +299,9 @@ class _PodPanelState extends State<PodPanel>
                                     isDark: animatedIsDark,
                                     themeStyle:
                                         widget.state.settings.themeStyle,
-                                    color: currentTheme.scaffoldBackgroundColor,
+                                    color: currentTheme.scaffoldBackgroundColor
+                                        .withOpacity(widget
+                                            .state.settings.backdropOpacity),
                                     borderColor: currentTheme.colorScheme.outline,
                                   ),
                                   child: Column(
@@ -436,7 +438,7 @@ class _PodPanelState extends State<PodPanel>
                           ),
                         ),
 
-                        // 2. 收起时显示的悬浮条：Windows上始终渲染，方便下拉与顶部滑轮收起 (macOS上已取消，改用菜单栏滚动触发)
+                        // 2. Collapsed top strip for Windows/Linux.
                         if (!Platform.isMacOS)
                           Positioned(
                             top: 0.0,

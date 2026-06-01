@@ -24,6 +24,7 @@ class AppSettings {
   final int autoCollapseDelay;
   final String? customFilesPath;
   final ThemeStyle themeStyle;
+  final double backdropOpacity;
 
   String get themeColorName => _themeColorName ?? 'blue';
   bool get closeOnBlur => _closeOnBlur ?? false;
@@ -41,6 +42,7 @@ class AppSettings {
     this.autoCollapseDelay = 3,
     this.customFilesPath,
     this.themeStyle = ThemeStyle.compact,
+    this.backdropOpacity = 0.92,
   })  : _themeColorName = themeColorName,
         _closeOnBlur = closeOnBlur;
 
@@ -57,6 +59,7 @@ class AppSettings {
     int? autoCollapseDelay,
     String? customFilesPath,
     ThemeStyle? themeStyle,
+    double? backdropOpacity,
   }) {
     return AppSettings(
       triggerMode: triggerMode ?? this.triggerMode,
@@ -71,6 +74,7 @@ class AppSettings {
       autoCollapseDelay: autoCollapseDelay ?? this.autoCollapseDelay,
       customFilesPath: customFilesPath ?? this.customFilesPath,
       themeStyle: themeStyle ?? this.themeStyle,
+      backdropOpacity: backdropOpacity ?? this.backdropOpacity,
     );
   }
 
@@ -88,6 +92,7 @@ class AppSettings {
       'autoCollapseDelay': autoCollapseDelay,
       'customFilesPath': customFilesPath,
       'themeStyle': themeStyle.name,
+      'backdropOpacity': backdropOpacity,
     };
   }
 
@@ -117,6 +122,7 @@ class AppSettings {
       autoCollapseDelay: json['autoCollapseDelay'] as int? ?? 3,
       customFilesPath: json['customFilesPath'] as String?,
       themeStyle: parseThemeStyle(json['themeStyle'] as String?),
+      backdropOpacity: (json['backdropOpacity'] as num?)?.toDouble() ?? 0.92,
     );
   }
 

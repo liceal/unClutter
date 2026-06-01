@@ -2,11 +2,13 @@
 #define RUNNER_FLUTTER_WINDOW_H_
 
 #include <flutter/dart_project.h>
+#include <flutter/encodable_value.h>
 #include <flutter/flutter_view_controller.h>
 #include <flutter/method_channel.h>
 
 #include <memory>
 #include <gdiplus.h>
+#include <chrono>
 
 #include "win32_window.h"
 
@@ -25,6 +27,15 @@ class FlutterWindow : public Win32Window {
                          LPARAM const lparam) noexcept override;
 
  private:
+  void InstallMouseHook();
+  void RemoveMouseHook();
+  void HandleGlobalMouseWheel(POINT point, int wheel_delta);
+  bool TryGetTopEdgeMonitorInfo(POINT point, flutter::EncodableMap* screen_info);
+
+  static LRESULT CALLBACK LowLevelMouseProc(int n_code, WPARAM wparam,
+                                            LPARAM lparam);
+  static FlutterWindow* scroll_hook_window_;
+
   // The project to run.
   flutter::DartProject project_;
 
@@ -39,6 +50,13 @@ class FlutterWindow : public Win32Window {
 
   // Method channel for focus management (save/restore previous app)
   std::unique_ptr<flutter::MethodChannel<>> focus_channel_;
+
+  // Method channel for native top-edge scroll events
+  std::unique_ptr<flutter::MethodChannel<>> menu_bar_scroll_channel_;
+
+  HHOOK mouse_hook_ = nullptr;
+  std::chrono::steady_clock::time_point last_scroll_time_ =
+      std::chrono::steady_clock::time_point::min();
 
   // Saved previous foreground window handle
   HWND previous_hwnd_ = nullptr;

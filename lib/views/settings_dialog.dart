@@ -29,6 +29,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
   late bool _closeOnBlur;
   late int _autoCollapseDelay;
   late ThemeStyle _themeStyle;
+  late double _backdropOpacity;
 
   final List<String> _hotkeyPresets = [
     'alt+u',
@@ -56,6 +57,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
     _closeOnBlur = widget.state.settings.closeOnBlur;
     _autoCollapseDelay = widget.state.settings.autoCollapseDelay;
     _themeStyle = widget.state.settings.themeStyle;
+    _backdropOpacity = widget.state.settings.backdropOpacity;
     _customFilesPathController = TextEditingController(text: widget.state.settings.customFilesPath ?? '');
 
     // Fetch storage directories
@@ -97,6 +99,7 @@ class _SettingsDialogState extends State<SettingsDialog> {
           ? null
           : _customFilesPathController.text.trim(),
       themeStyle: _themeStyle,
+      backdropOpacity: _backdropOpacity,
     );
     widget.state.updateSettings(updated);
     Navigator.of(context).pop();
@@ -416,6 +419,40 @@ class _SettingsDialogState extends State<SettingsDialog> {
                         },
                       ),
                     ],
+                    const SizedBox(height: 10),
+
+                    // Backdrop opacity
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Text(
+                          '背板透明度',
+                          style: TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            color: subColor,
+                          ),
+                        ),
+                        Text(
+                          '${(_backdropOpacity * 100).round()}%',
+                          style: TextStyle(fontSize: 12, color: textColor),
+                        ),
+                      ],
+                    ),
+                    Slider(
+                      value: _backdropOpacity,
+                      min: 0.35,
+                      max: 1.0,
+                      divisions: 65,
+                      activeColor: accentColor,
+                      inactiveColor: _isDarkTheme ? Colors.white12 : Colors.black12,
+                      label: '${(_backdropOpacity * 100).round()}%',
+                      onChanged: (val) {
+                        setState(() {
+                          _backdropOpacity = val;
+                        });
+                      },
+                    ),
                     const SizedBox(height: 10),
 
                     // Theme Accent Selection
